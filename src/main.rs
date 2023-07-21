@@ -119,10 +119,7 @@ fn current_parameters(
         },
         |err: &Error| {
             log::debug!("get describe stacks error {}", err);
-            match err {
-                Error::Throttling(_) => true,
-                _ => false,
-            }
+            matches!(err, Error::Throttling(_))
         },
     )
 }
@@ -142,10 +139,7 @@ fn current_template(
         },
         |err: &Error| {
             log::debug!("get template error {}", err);
-            match err {
-                Error::Throttling(_) => true,
-                _ => false,
-            }
+            matches!(err, Error::Throttling(_))
         },
     )
 }
@@ -180,11 +174,11 @@ fn create_changeset(
         },
         move |err: &Error| {
             log::debug!("create changeset error {}", err);
-            match err {
-                Error::Create(RusotoError::Service(CreateChangeSetError::LimitExceeded(_))) => true,
-                Error::Throttling(_) => true,
-                _ => false,
-            }
+            matches!(
+                err,
+                Error::Create(RusotoError::Service(CreateChangeSetError::LimitExceeded(_)))
+                    | Error::Throttling(_)
+            )
         },
     )
 }
@@ -252,7 +246,7 @@ fn render(change: Change) -> String {
     }
 }
 
-fn sort(changes: &mut Vec<Change>) {
+fn sort(changes: &mut [Change]) {
     changes.sort_by(|a, b| {
         a.resource_change
             .clone()
@@ -270,11 +264,9 @@ fn sort(changes: &mut Vec<Change>) {
 }
 
 fn diff_changeset(changeset: DescribeChangeSetOutput) {
-    match &changeset
-        .status
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or_default()[..]
+    match changeset
+        .status.as_deref()
+        .unwrap_or_default()
     {
         complete if complete.ends_with("_COMPLETE") => {
             let mut changes = changeset.changes.unwrap_or_default();
@@ -296,22 +288,22 @@ fn diff_changeset(changeset: DescribeChangeSetOutput) {
     }
 }
 
-fn suffix_tempfile(filename: &PathBuf) -> io::Result<tempfile::NamedTempFile> {
-    Ok(tempfile::Builder::new()
+fn suffix_tempfile(filename: &Path) -> io::Result<tempfile::NamedTempFile> {
+    tempfile::Builder::new()
         .suffix(
             &filename
                 .extension()
                 .map(|x| format!(".{}", x.to_str().unwrap_or_default()))
                 .unwrap_or_default(),
         )
-        .tempfile()?)
+        .tempfile()
 }
 
 fn diff_template(
-    filename: &PathBuf,
+    filename: &Path,
     template_body: String,
 ) -> Result<String, Box<dyn StdError>> {
-    let mut tmp = suffix_tempfile(&filename)?;
+    let mut tmp = suffix_tempfile(filename)?;
     tmp.write_all(&template_body.as_bytes().to_vec()[..])?;
     tmp.flush()?;
     let path = tmp.path().to_str().unwrap_or_default();
@@ -326,7 +318,7 @@ fn diff_template(
     let output = args
         .iter()
         .fold(&mut Command::new(program), |cmd, arg| cmd.arg(arg))
-        .args(&[filename.to_str().unwrap_or_default(), path])
+        .args([filename.to_str().unwrap_or_default(), path])
         .output()?;
     /*if output.status.code().unwrap_or_default() != 0 {
         eprintln!("{}", from_utf8(&output.stderr)?);
